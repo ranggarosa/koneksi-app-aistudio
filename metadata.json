@@ -1,0 +1,6 @@
+{
+  "name": "Koneksi - Sistem Manajemen Surat",
+  "description": "Sistem Manajemen Surat (Letter Management System)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        getUserData().role == 'admin' ||
+        request.auth.token.role == 'admin' ||
+        request.auth.token.email == 'admin@koneksi.co.id'
+      );
+    }
+
+    function isReviewerOrApprover() {
+      return isSignedIn() && (
+        getUserData().role in ['reviewer', 'approver', 'admin'] ||
+        request.auth.token.role in ['reviewer', 'approver', 'admin']
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // ----------------------------------------------------
+    // User Profiles Collection
+    // ----------------------------------------------------
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------
+    // Numbering Counters Collection
+    // ----------------------------------------------------
+    match /counters/{counterId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ----------------------------------------------------
+    // Letters Collection
+    // ----------------------------------------------------
+    match /letters/{letterId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------
+    // Audit Logs Collection (Append-Only & Immutable)
+    // Pillar 2 & 8: Absolute immutability, zero updates or deletions
+    // ----------------------------------------------------
+    match /audit_logs/{logId} {
+      // Admins can read all audit logs to monitor system activity.
+      // Actors can read their own generated logs.
+      allow read: if isSignedIn() && (isAdmin() || resource.data.performedBy.userId == request.auth.uid);
+
+      // Anyone authenticated can create audit logs when logging operations
+      allow create: if isSignedIn() && isValidAuditLog(request.resource.data);
+
+      // Strict Immutability: No user, including Admin, can modify or delete audit trails
+      allow update, delete: if false;
+    }
+
+    // Audit log schema validator
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['logId', 'timestamp', 'actionType', 'performedBy', 'targetResource']) &&
+        data.logId is string && data.logId.size() <= 128 &&
+        data.timestamp is string &&
+        data.actionType is string && data.actionType.size() <= 64 &&
+        data.performedBy is map &&
+        data.performedBy.userId is string &&
+        data.performedBy.userId == request.auth.uid &&
+        data.targetResource is string && data.targetResource.size() <= 128 &&
+        (!('metadata' in data) || data.metadata is map);
+    }
+  }
+}
